@@ -136,29 +136,38 @@ class DataProcessor:
         
         return df
 
-    def add_power_features(self, df: pd.DataFrame) -> pd.DataFrame:
+    def add_rolling_features(self, df: pd.DataFrame, window: int = 24) -> pd.DataFrame:
         """
-        Engineering core power-specific features:
-        - Moving Averages (24h, 7d): Captures short and medium term trends.
-        - Volatility: 24h rolling standard deviation (quantifies market stability).
-        - Momentum: Price difference vs 24h ago (detects sudden shifts).
+        Calculates rolling window statistics (mean, max, min, std) for the past N hours.
+        Target: Capture market volatility and trends.
         """
-        self.logger.info("Implementing add_power_features()...")
+        self.logger.info(f"Adding {window}h rolling window statistics (mean, max, min, std)...")
         
-        # Rolling Averages
-        df['value_rolling_mean_24h'] = df['value'].rolling(window=24).mean()
-        df['value_rolling_mean_7d'] = df['value'].rolling(window=168).mean()
+        # Define columns
+        mean_col = f'value_rolling_mean_{window}h'
+        max_col = f'value_rolling_max_{window}h'
+        min_col = f'value_rolling_min_{window}h'
+        std_col = f'value_rolling_std_{window}h'
         
-        # Volatility
-        df['value_rolling_std_24h'] = df['value'].rolling(window=24).std()
+        # Calculate statistics
+        df[mean_col] = df['value'].rolling(window=window).mean()
+        df[max_col] = df['value'].rolling(window=window).max()
+        df[min_col] = df['value'].rolling(window=window).min()
+        df[std_col] = df['value'].rolling(window=window).std()
         
-        # Momentum (Difference from same time yesterday)
+        # Momentum: Change compared to same time yesterday
         df['value_diff_24h'] = df['value'].diff(24)
         
-        # Fill NaNs created by rolling windows with backfill to keep shapes consistent
-        df = df.fillna(method='bfill')
+        # Fill NaNs created by rolling windows
+        df = df.bfill()
         
         return df
+
+    def add_power_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Maintains backward compatibility by calling add_rolling_features.
+        """
+        return self.add_rolling_features(df, window=24)
 
     def add_lag_features(self, df: pd.DataFrame, lags: List[int]) -> pd.DataFrame:
         """
@@ -198,11 +207,15 @@ class DataProcessor:
         # 3. Add Time Features
         df = self.add_time_features(df)
         
-        # 4. Add Lags (24h, 48h, 168h)
-        df = self.add_lag_features(df, [24, 48, 168])
+        # 4. Add Lags (1h, 24h, 168h)
+        # 1h: Short-term inertia
+        # 24h: Daily seasonality
+        # 168h: Weekly seasonality
+        df = self.add_lag_features(df, [1, 24, 168])
         
-        # 5. Add Power Features (Rolling, Volatility)
-        df = self.add_power_features(df)
+        # 5. Add Rolling Statistics (24h Window)
+        # Includes Mean, Max, Min, Std
+        df = self.add_rolling_features(df, window=24)
         
         # 6. Save some metadata or logs?
         self.df = df
