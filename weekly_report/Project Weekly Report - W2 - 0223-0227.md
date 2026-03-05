@@ -1,4 +1,4 @@
-# PROJECT WEEKLY REPORT - W2 - 0221-0227
+# PROJECT WEEKLY REPORT - W2 - 0223-0227
 
 ## FIELD NOTE: SWEDISH ELECTRICITY PRICE FORECASTING
 
@@ -33,6 +33,11 @@ This week focused on transitioning from raw data acquisition to a production-rea
 #### C. Verification & Diagnostic EDA
 1.  **Pipeline Validation Script**: Created `scripts/verify_features.py` to automate NaN detection, shape verification, and basic correlation checks.
 2.  **Feature Analysis Notebook**: Developed `02_EDA_and_Visualizations.ipynb` (refined) and `03_Feature_Engineering_Analysis.ipynb` to visualize feature-target relationships.
+
+#### D. Feature Engineering Insights (Analysis of Notebook 03)
+1.  **Feature Correlation Matrix**: Confirmed `value_rolling_mean_24h` and `value_lag_24` as dominant predictors (corr > 0.75), validating the market's short-term dependency.
+2.  **Target vs. Key Features**: Scatter plots validated the linear relationship after deep cleaning, while boxplots confirmed rigid morning peak (07:00-10:00) patterns.
+3.  **Volatility Distribution**: 24h rolling std showed a clean "long-tail" distribution, confirming that the IQR capping strategy effectively balanced signal retention and noise reduction.
 
 ---
 
