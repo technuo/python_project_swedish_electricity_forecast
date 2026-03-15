@@ -669,42 +669,67 @@ class SMHIClient(APIClient):
             rate_limit=2.0  # SMHI allows more frequent requests
         )
     
-    def fetch_temperature(
+    def fetch_parameter(
+        self,
+        station_id: int,
+        parameter_id: int,
+        period: str = 'corrected-archive'
+    ) -> pd.DataFrame:
+        """
+        Fetch observation data for a specific meteorological parameter.
+        
+        Args:
+            station_id: weather station ID
+            parameter_id: 1 for temperature, 4 for wind speed, etc.
+            period: 'corrected-archive', 'latest-months', 'latest-day'
+            
+        Returns:
+            DataFrame with columns: [timestamp, value_col, quality]
+        """
+        endpoint = f"/version/1.0/parameter/{parameter_id}/station/{station_id}/period/{period}/data.json"
+        
+        try:
+            data = self.get(endpoint)
+            
+            # Parse response
+            df = pd.DataFrame(data['value'])
+            df['timestamp'] = pd.to_datetime(df['date'], unit='ms', utc=True)
+            df = convert_to_swedish_time(df, 'timestamp')
+            
+            # Map parameter id to column name
+            param_map = {1: 'temperature', 4: 'wind_speed'}
+            val_col = param_map.get(parameter_id, f'param_{parameter_id}')
+            
+            df = df.rename(columns={'value': val_col})
+            
+            # Select key columns
+            df = df[['timestamp', val_col, 'quality']]
+            
+            self.logger.info(f"Fetched {len(df)} records for param {parameter_id} "
+                           f"and station {station_id}")
+            return df
+            
+        except Exception as e:
+            self.logger.error(f"Failed to fetch param {parameter_id} for station {station_id}: {e}")
+            raise
+            
+    def fetch_weather_data(
         self,
         station_id: int,
         period: str = 'corrected-archive'
     ) -> pd.DataFrame:
         """
-        Fetch temperature observation data.
-        
-        Args:
-            station_id: weather station ID
-            period: 'corrected-archive', 'latest-months', 'latest-day'
-            
-        Returns:
-            DataFrame with columns: [timestamp, temperature, quality]
+        Convenience method to fetch both temperature and wind speed for a station.
         """
-        endpoint = f"/version/1.0/parameter/1/station/{station_id}/period/{period}/data.json"
+        self.logger.info(f"Fetching temperature and wind speed for station {station_id}...")
         
-        try:
-            data = self.get(endpoint)
-            
-            # Parse response (adjust based on actual response structure)
-            df = pd.DataFrame(data['value'])
-            df['timestamp'] = pd.to_datetime(df['date'], unit='ms', utc=True)
-            df = convert_to_swedish_time(df, 'timestamp')
-            df = df.rename(columns={'value': 'temperature'})
-            
-            # Select key columns
-            df = df[['timestamp', 'temperature', 'quality']]
-            
-            self.logger.info(f"Fetched {len(df)} temperature records "
-                           f"for station {station_id}")
-            return df
-            
-        except Exception as e:
-            self.logger.error(f"Failed to fetch temperature: {e}")
-            raise
+        # Temp param is 1, wind speed param is 4
+        df_temp = self.fetch_parameter(station_id, parameter_id=1, period=period)
+        df_wind = self.fetch_parameter(station_id, parameter_id=4, period=period)
+        
+        # Merge them on timestamp
+        df = pd.merge(df_temp, df_wind[['timestamp', 'wind_speed']], on='timestamp', how='outer')
+        return df
     
     def fetch_all_regions(
         self,
@@ -712,7 +737,7 @@ class SMHIClient(APIClient):
         end_date: str
     ) -> pd.DataFrame:
         """
-        Fetch temperature data for all four regions.
+        Fetch temperature and wind speed data for all four regions.
         
         Why this aggregation method?
         - Downstream usually needs complete data, not per-region requests
@@ -721,10 +746,10 @@ class SMHIClient(APIClient):
         all_data = []
         
         for region, info in self.STATIONS.items():
-            self.logger.info(f"Fetching temperature for {region} ({info['name']})...")
+            self.logger.info(f"Fetching weather for {region} ({info['name']})...")
             
             try:
-                df = self.fetch_temperature(info['id'], period='corrected-archive')
+                df = self.fetch_weather_data(info['id'], period='corrected-archive')
                 
                 # Filter date range
                 mask = (df['timestamp'] >= start_date) & (df['timestamp'] <= end_date)
@@ -743,7 +768,7 @@ class SMHIClient(APIClient):
             raise RuntimeError("Failed to fetch data for all regions")
         
         combined = pd.concat(all_data, ignore_index=True)
-        self.logger.info(f"Combined temperature data: {len(combined)} rows")
+        self.logger.info(f"Combined weather data: {len(combined)} rows")
         return combined
 
 # =============================================================================
