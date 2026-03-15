@@ -178,6 +178,70 @@ class DataProcessor:
             df = create_lag_features(df, 'value', [lag])
         return df
 
+    def add_weather_features(self, df: pd.DataFrame, smhi_df: Optional[pd.DataFrame] = None) -> pd.DataFrame:
+        """
+        Integrates SMHI weather data (temperature, wind speed) into the dataset.
+        1. Timezone Alignment: Ensure Europe/Stockholm and align with df index.
+        2. Missing values: Linear interpolation for temperature and wind speed.
+        3. Feature engineering: Lags for temperature, squared wind speed.
+        """
+        self.logger.info("Adding external weather features (temperature, wind speed)...")
+        
+        # If no external data passed, just return the original df (or load from disk if implemented)
+        if smhi_df is None or smhi_df.empty:
+            self.logger.warning("No SMHI data provided. Skipping weather features.")
+            return df
+            
+        # 1. Timezone Alignment and indexing
+        if 'timestamp' in smhi_df.columns:
+            smhi_df = convert_to_swedish_time(smhi_df, 'timestamp')
+            # Remove duplicates based on timestamp
+            smhi_df = smhi_df.drop_duplicates(subset=['timestamp']).set_index('timestamp')
+        elif isinstance(smhi_df.index, pd.DatetimeIndex):
+            smhi_df = smhi_df[~smhi_df.index.duplicated(keep='first')]
+        else:
+            self.logger.warning("SMHI dataframe missing timestamp. Skipping weather features.")
+            return df
+
+        # Only join columns we care about if they exist
+        cols_to_join = []
+        if 'temperature' in smhi_df.columns: cols_to_join.append('temperature')
+        if 'wind_speed' in smhi_df.columns: cols_to_join.append('wind_speed')
+        
+        if not cols_to_join:
+            self.logger.warning("No temperature or wind_speed columns in SMHI data. Skipping.")
+            return df
+
+        # We must align with the main df's index. To do so, let's temporarily set df index.
+        # df already has 'timestamp' column and might be continuous.
+        df = df.set_index('timestamp')
+        
+        # Left join to preserve all electricity data points
+        df = df.join(smhi_df[cols_to_join], how='left')
+        
+        # 2. Handle missing weather data
+        self.logger.info("Interpolating missing weather data...")
+        for col in cols_to_join:
+            # Linear interpolation for temporal continuity
+            df[col] = df[col].interpolate(method='linear')
+            # Backfill and forward fill any remaining NaNs at the boundaries
+            df[col] = df[col].bfill().ffill()
+
+        df = df.reset_index() # Bring timestamp back to column
+        
+        # 3. Feature Transformation
+        self.logger.info("Applying weather feature transformations...")
+        
+        if 'temperature' in df.columns:
+            # Temperature lags: Energy demand reacts to temperature with delay
+            df = create_lag_features(df, 'temperature', [1, 24])
+            
+        if 'wind_speed' in df.columns:
+            # Wind Power Potential: roughly proportional to wind speed squared/cubed
+            df['wind_speed_squared'] = df['wind_speed'] ** 2
+            
+        return df
+
     def filter_features(self, df: pd.DataFrame, target_col: str = 'value') -> Tuple[pd.DataFrame, pd.Series]:
         """
         Feature selection using correlation analysis.
@@ -216,6 +280,10 @@ class DataProcessor:
         # 5. Add Rolling Statistics (24h Window)
         # Includes Mean, Max, Min, Std
         df = self.add_rolling_features(df, window=24)
+        
+        # Note: weather features should be called directly when SMHI data is available,
+        # e.g.: df = processor.add_weather_features(df, smhi_df=weather_data)
+        # Alternatively, we can try to fetch/load inside this pipeline.
         
         # 6. Save some metadata or logs?
         self.df = df
