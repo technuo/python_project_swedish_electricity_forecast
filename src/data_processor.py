@@ -103,16 +103,47 @@ class DataProcessor:
     def add_time_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Extracts temporal characteristics to capture seasonality.
+        Includes cyclical encoding for hour, day-of-week, and month.
         """
         self.logger.info("Adding temporal features...")
         df['hour'] = df['timestamp'].dt.hour
         df['day_of_week'] = df['timestamp'].dt.dayofweek
         df['month'] = df['timestamp'].dt.month
         df['is_weekend'] = df['day_of_week'].isin([5, 6]).astype(int)
-        
+
         df['is_peak_morning'] = df['hour'].between(7, 10).astype(int)
         df['is_peak_evening'] = df['hour'].between(17, 20).astype(int)
-        
+
+        # Cyclical encoding - prevents model treating hour 23 and 0 as distant
+        df['hour_sin'] = np.sin(2 * np.pi * df['hour'] / 24)
+        df['hour_cos'] = np.cos(2 * np.pi * df['hour'] / 24)
+        df['month_sin'] = np.sin(2 * np.pi * df['month'] / 12)
+        df['month_cos'] = np.cos(2 * np.pi * df['month'] / 12)
+        df['dow_sin'] = np.sin(2 * np.pi * df['day_of_week'] / 7)
+        df['dow_cos'] = np.cos(2 * np.pi * df['day_of_week'] / 7)
+
+        return df
+
+    def add_holiday_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Adds Swedish public holiday indicators to the dataset.
+        Includes current day holiday and pre-holiday indicator.
+        """
+        self.logger.info("Adding holiday features...")
+        import holidays as hols
+
+        swedish_holidays = hols.Sweden()
+
+        # Is the current day a holiday
+        df['is_holiday'] = df['timestamp'].dt.date.map(
+            lambda d: int(d in swedish_holidays)
+        )
+
+        # Day before holiday (often affects consumption)
+        df['is_pre_holiday'] = df['timestamp'].apply(
+            lambda ts: int((ts + pd.Timedelta(days=1)).date() in swedish_holidays)
+        )
+
         return df
 
     def add_lag_features(self, df: pd.DataFrame, lags: List[int]) -> pd.DataFrame:
@@ -174,8 +205,45 @@ class DataProcessor:
             
         if 'wind_speed' in df.columns:
             df['wind_speed_squared'] = df['wind_speed'] ** 2
-            
+
         return df
+
+    def split_time_series(
+        self,
+        df: pd.DataFrame,
+        train_ratio: float = 0.8,
+        save: bool = True
+    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        """
+        Splits data into train/test sets chronologically (time-series aware).
+
+        Args:
+            df: Feature-engineered DataFrame with timestamp index or column
+            train_ratio: Proportion of data for training (default 80%)
+            save: Whether to save split to disk
+
+        Returns:
+            Tuple of (train_df, test_df)
+        """
+        self.logger.info(f"Performing {int(train_ratio*100)}/{int((1-train_ratio)*100)} time-series split...")
+
+        # Ensure sorted by time
+        df = df.sort_values('timestamp').reset_index(drop=True)
+
+        split_idx = int(len(df) * train_ratio)
+        train_df = df.iloc[:split_idx].copy()
+        test_df = df.iloc[split_idx:].copy()
+
+        self.logger.info(f"Train: {len(train_df)} rows ({train_df['timestamp'].min()} to {train_df['timestamp'].max()})")
+        self.logger.info(f"Test: {len(test_df)} rows ({test_df['timestamp'].min()} to {test_df['timestamp'].max()})")
+
+        if save:
+            import joblib
+            split_path = DATA_PATHS['processed'] / 'train_test_split.pkl'
+            joblib.dump({'train': train_df, 'test': test_df}, split_path)
+            self.logger.info(f"Train/test split saved to {split_path}")
+
+        return train_df, test_df
 
     def add_rolling_features(self, df: pd.DataFrame, window: int = 24) -> pd.DataFrame:
         """
@@ -228,9 +296,12 @@ class DataProcessor:
         # 2. Deep Clean
         df = self.clean_data(df)
         
-        # 3. Add Time Features
+        # 3. Add Time Features (including cyclical encoding)
         df = self.add_time_features(df)
-        
+
+        # 3b. Add Holiday Features
+        df = self.add_holiday_features(df)
+
         # 4. Add Lags (1h, 24h, 168h)
         df = self.add_lag_features(df, [1, 24, 168])
         
