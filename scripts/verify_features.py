@@ -46,6 +46,14 @@ def verify_pipeline():
             logger.error(f"Missing expected columns: {missing_cols}")
         else:
             logger.info("Verification Passed: All expected features are present.")
+
+        # 4b. Check W5 new features
+        new_w5_features = ['hour_sin', 'hour_cos', 'is_holiday', 'is_pre_holiday']
+        missing_w5 = [c for c in new_w5_features if c not in df.columns]
+        if missing_w5:
+            logger.error(f"Missing W5 features: {missing_w5}")
+        else:
+            logger.info("Verification Passed: All W5 features present (sin/cos, holidays).")
             
         # 5. Feature Filtering
         logger.info("Testing feature filtering...")
