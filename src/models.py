@@ -12,7 +12,7 @@ Design: Abstract base class ensures consistent interface across all models.
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional, Tuple, List
+from typing import Dict, Any, Optional, Tuple, List, Union
 from pathlib import Path
 import sys
 
@@ -163,6 +163,21 @@ class BaseForecaster(ABC):
 
         return metrics
 
+    def get_params(self) -> Dict[str, Any]:
+        """Get parameters for this forecaster."""
+        params = {'random_state': self.random_state}
+        # Add attributes from subclasses (n_estimators, etc.)
+        for attr in ['n_estimators', 'max_depth', 'min_samples_split', 
+                    'learning_rate', 'subsample', 'colsample_bytree', 
+                    'num_leaves', 'early_stopping_rounds', 'extra_params']:
+            if hasattr(self, attr):
+                val = getattr(self, attr)
+                if attr == 'extra_params' and isinstance(val, dict):
+                    params.update(val)
+                else:
+                    params[attr] = val
+        return params
+
     def cross_validate(
         self,
         X: pd.DataFrame,
@@ -191,8 +206,11 @@ class BaseForecaster(ABC):
             X_val_fold = X.iloc[val_idx]
             y_val_fold = y.iloc[val_idx]
 
-            # Create fresh model for each fold
-            model = self.__class__(name=f"{self.name}_fold{fold}", random_state=self.random_state)
+            # Create fresh model for each fold with same parameters
+            params = self.get_params()
+            params['name'] = f"{self.name}_fold{fold}"
+            model = self.__class__(**params)
+            
             model.fit(X_train_fold, y_train_fold)
             metrics = model.evaluate(X_val_fold, y_val_fold, verbose=False)
 
@@ -307,9 +325,10 @@ class RandomForestForecaster(BaseForecaster):
         max_depth: int = 10,
         min_samples_split: int = 5,
         random_state: int = 42,
+        name: str = "RandomForest",
         **kwargs
     ):
-        super().__init__("RandomForest", random_state)
+        super().__init__(name, random_state)
         self.n_estimators = n_estimators
         self.max_depth = max_depth
         self.min_samples_split = min_samples_split
@@ -343,9 +362,10 @@ class XGBoostForecaster(BaseForecaster):
         colsample_bytree: float = 0.8,
         early_stopping_rounds: int = 50,
         random_state: int = 42,
+        name: str = "XGBoost",
         **kwargs
     ):
-        super().__init__("XGBoost", random_state)
+        super().__init__(name, random_state)
         self.n_estimators = n_estimators
         self.learning_rate = learning_rate
         self.max_depth = max_depth
@@ -388,9 +408,10 @@ class LightGBMForecaster(BaseForecaster):
         colsample_bytree: float = 0.8,
         early_stopping_rounds: int = 50,
         random_state: int = 42,
+        name: str = "LightGBM",
         **kwargs
     ):
-        super().__init__("LightGBM", random_state)
+        super().__init__(name, random_state)
         self.n_estimators = n_estimators
         self.learning_rate = learning_rate
         self.max_depth = max_depth
