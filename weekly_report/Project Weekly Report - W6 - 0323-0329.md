@@ -198,6 +198,5 @@ The 40% price increase (37→52 SEK/MWh) between train/test sets:
 
 ---
 
-**Prepared by**: Development Team
 **Date**: March 29, 2026
 **Status**: On Track for W7 Milestones

@@ -1,0 +1,10 @@
+{
+  "baseline_mae": 3.57817582468216,
+  "weather_impact_mae": -0.07269903460377991,
+  "weather_impact_pct": -2.031734553185004,
+  "holiday_impact_mae": -0.08822301956670842,
+  "holiday_impact_pct": -2.4655864856653613,
+  "combined_aux_impact_mae": -0.16028905861670095,
+  "combined_aux_impact_pct": -4.4796305846971345,
+  "core_only_mae": 3.3024682109393706
+}
